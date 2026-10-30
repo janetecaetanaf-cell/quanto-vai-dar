@@ -105,11 +105,17 @@ export async function readTag(file, { onProgress = () => {}, onThumb = () => {} 
   const worker = await getWorker();
   const { data } = await worker.recognize(canvas);
   const words = data.words ?? [];
-  const prices = findPrices(words);
+  const lines = data.lines ?? [];
+  const found = findPrices(words);
   const big = await readBigPrice(worker, canvas, words).catch(() => null);
+  const cands = big ? [{ ...big, perUnit: false }, ...found.filter(f => f.cents !== big.cents)] : found;
+  // O nome fica logo acima do preço da etiqueta (e não no alto da foto, onde costuma
+  // aparecer a embalagem do produto).
+  const anchor = (cands.find(c => !c.perUnit) ?? cands[0])?.bbox ?? null;
+  const nameText = findNameText(lines, anchor);
   return {
-    prices: big ? [big, ...prices.filter(p => p !== big)].slice(0, 4) : prices,
-    name: guessName(data.lines ?? []),
+    prices: checkWithUnitPrice(cands, nameText),
+    name: titleCase(nameText).slice(0, 60).trim(),
     text: data.text ?? '',
   };
 }
@@ -125,7 +131,7 @@ async function readBigPrice(worker, canvas, words) {
   const top = Math.max(0, Math.round(big.bbox.y0 - h * 0.35));
   const right = Math.min(canvas.width, Math.round(big.bbox.x1 + h * 2.2));
   const bottom = Math.min(canvas.height, Math.round(big.bbox.y1 + h * 0.35));
-  const valid = c => (c > 0 && c < 100000 ? c : null);
+  const valid = c => (c > 0 && c < 100000 ? { cents: c, bbox: big.bbox } : null);
   await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789,.R$' });
   try {
     const { data } = await worker.recognize(canvas, { rectangle: { left, top, width: right - left, height: bottom - top } });
@@ -233,8 +239,31 @@ const CURRENCY = /^R[$S5]$/i;
 const fixDigits = t => t.replace(/[Oo]/g, '0').replace(/[lI|]/g, '1');
 const heightOf = w => w.bbox.y1 - w.bbox.y0;
 
-// Devolve os preços encontrados (em centavos), do mais provável ao menos provável.
-// O preço de verdade costuma ser o maior número da etiqueta; "preço por kg" vem menor.
+const PER_UNIT = /k\s*g|litro|\/\s*l\b|m[eé]dia|\bp\s*\/\s*(kg|l|lt)\b/i;
+const TAX = /tribut|impost|ibpt/i;
+
+// Texto das palavras de tamanho parecido ao lado ou logo acima de um número.
+// Na etiqueta, "MÉDIA P/KG" fica em cima do "R$ 79,50" e "Tributação" em cima do imposto.
+function contextOf(w, words) {
+  const h = heightOf(w);
+  const cy = (w.bbox.y0 + w.bbox.y1) / 2;
+  return words.filter(o => {
+    if (o === w) return false;
+    const oh = heightOf(o);
+    if (oh < h * 0.5 || oh > h * 2) return false;
+    // Na mesma linha: o rótulo costuma vir antes ("Preço por kg: R$ 37,80").
+    const sameRow = Math.abs((o.bbox.y0 + o.bbox.y1) / 2 - cy) < h * 0.5
+      && (o.bbox.x0 - w.bbox.x1 < h * 1.5 && w.bbox.x0 - o.bbox.x1 < h * 4);
+    const gapAbove = w.bbox.y0 - o.bbox.y1;
+    const above = gapAbove > -h * 0.3 && gapAbove < h * 1.5
+      && o.bbox.x0 < w.bbox.x1 + h && o.bbox.x1 > w.bbox.x0 - h;
+    return sameRow || above;
+  }).map(o => o.text).join(' ');
+}
+
+// Devolve os preços encontrados, do mais provável ao menos provável, com a posição na foto.
+// O preço de verdade costuma ser o maior número da etiqueta; preço por kg/litro vem menor
+// e marcado (perUnit); o valor de imposto ("Tributação R$ 2,75") é descartado.
 export function findPrices(words) {
   const found = [];
   for (let i = 0; i < words.length; i++) {
@@ -244,7 +273,6 @@ export function findPrices(words) {
     const prev = words[i - 1];
     const next = words[i + 1];
     const h = heightOf(w);
-    const perKg = /k\s*g|\/\s*k/i.test(raw) || (next && /^\/?\s*k\s*g/i.test(next.text.trim()));
     const withCurrency = /^R[$S5]/i.test(raw) || (prev && CURRENCY.test(prev.text.trim()));
     const core = fixDigits(raw.replace(/^R[$S5]?/i, '')).replace(/[^\d,.]/g, '');
 
@@ -254,7 +282,9 @@ export function findPrices(words) {
       cents = Number(full[1]) * 100 + Number(full[2]);
     } else {
       // Reais grandes com centavos pequenos ao lado, como nas etiquetas: 4 ⁹⁹
-      const whole = core.match(/^(\d{1,4})[,.]?$/);
+      // Só vale se a palavra for mesmo um número (evita "Loja: 38" virar R$ 0,38).
+      const digitWord = /^(R[$S5])?[\dOoIl|]{1,4}[,.]?$/i.test(raw);
+      const whole = digitWord ? core.match(/^(\d{1,4})[,.]?$/) : null;
       const nc = next ? fixDigits(next.text.trim()).replace(/[^\d]/g, '') : '';
       if (whole && /^\d{2}$/.test(nc)
         && heightOf(next) < h * 0.85
@@ -264,12 +294,50 @@ export function findPrices(words) {
       }
     }
     if (cents > 0 && cents < 100000) {
-      const score = h * (perKg ? 0.5 : 1) * (withCurrency ? 1.25 : 1) * (w.confidence >= 60 ? 1 : 0.7);
-      found.push({ cents, score });
+      const context = contextOf(w, words);
+      if (TAX.test(context)) continue;
+      const perUnit = /k\s*g|\/\s*k/i.test(raw) || PER_UNIT.test(context);
+      const score = h * (perUnit ? 0.4 : 1) * (withCurrency ? 1.25 : 1) * (w.confidence >= 60 ? 1 : 0.7);
+      found.push({ cents, score, perUnit, bbox: w.bbox });
     }
   }
-  found.sort((a, b) => b.score - a.score);
-  return [...new Set(found.map(f => f.cents))].slice(0, 4);
+  return found.sort((a, b) => b.score - a.score);
+}
+
+// Números que o leitor costuma trocar entre si nas letras grossas das etiquetas.
+const LOOK_ALIKE = new Set(['17', '71', '56', '65', '68', '86', '38', '83', '08', '80', '89', '98']);
+function lookAlike(a, b) {
+  const sa = String(a);
+  const sb = String(b);
+  if (sa.length !== sb.length || sa === sb) return false;
+  for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i] && !LOOK_ALIKE.has(sa[i] + sb[i])) return false;
+  return true;
+}
+
+// Peso ou volume escrito no nome ("100G", "1,6KG", "500ML", "2L"), em gramas ou mililitros.
+function amountFromName(text) {
+  const m = text.match(/(\d+(?:[.,]\d+)?)\s*(kg|gr|g|ml|lt|l)\b/i);
+  if (!m) return null;
+  const n = Number(m[1].replace(',', '.'));
+  const big = /^(kg|lt|l)$/i.test(m[2]);
+  const amount = big ? n * 1000 : n;
+  return amount > 0 && amount <= 50000 ? amount : null;
+}
+
+// As etiquetas mostram o preço por kg ou por litro. Com o peso do nome dá para conferir a conta:
+// 100 g a R$ 79,50 o kg = R$ 7,95. Se o leitor viu "1,95", troca pelo valor que fecha a conta.
+function checkWithUnitPrice(cands, nameText) {
+  const unit = cands.filter(c => !c.perUnit).map(c => c.cents);
+  const perUnit = cands.filter(c => c.perUnit).map(c => c.cents);
+  const amount = amountFromName(nameText);
+  if (amount && perUnit.length) {
+    const expected = Math.round((perUnit[0] * amount) / 1000);
+    const close = unit.findIndex(c => Math.abs(c - expected) <= 2);
+    if (close > 0) unit.unshift(...unit.splice(close, 1));
+    else if (close < 0 && unit.length && lookAlike(unit[0], expected)) unit[0] = expected;
+    else if (close < 0 && expected > 0) unit.splice(unit.length ? 1 : 0, 0, expected);
+  }
+  return [...new Set([...unit, ...perUnit])].slice(0, 4);
 }
 
 // ---------- nome ----------
@@ -277,7 +345,7 @@ const NOISE = new Set([
   'r', 'rs', 'un', 'und', 'unid', 'unidade', 'kg', 'g', 'cod', 'codigo', 'preco', 'precos', 'oferta', 'ofertas',
   'promocao', 'promo', 'leve', 'pague', 'por', 'cada', 'a', 'vista', 'validade', 'ean', 'ref', 'sku', 'de', 'apenas',
   'so', 'hoje', 'economize', 'clube', 'cartao', 'total', 'gr', 'item', 'itens', 'data', 'emissao', 'reais',
-  'litro', 'litros', 'l', 'ml', 'quilo', 'gramas', 'embalagem',
+  'litro', 'litros', 'l', 'ml', 'quilo', 'gramas', 'embalagem', 'media', 'p/kg', 'p/l', 'tributacao', 'loja', 'dta',
 ]);
 const SMALL_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'com', 'sem', 'em', 'c/', 'p/']);
 const plain = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9/]+/g, '');
@@ -290,33 +358,50 @@ function titleCase(s) {
   }).join(' ');
 }
 
-// O nome do produto fica no alto da etiqueta: pega a primeira linha com cara de texto
-// e, se houver, a linha logo abaixo dela (nomes longos quebram em duas linhas).
-export function guessName(lines) {
-  const kept = [];
-  let first = null;
-  const sorted = [...lines].sort((a, b) => a.bbox.y0 - b.bbox.y0);
-  for (const line of sorted) {
-    const tokens = (line.words ?? [])
-      .filter(w => w.confidence >= 50)
-      .map(w => w.text.trim())
-      .filter(t => t && !/\d[,.]\d{2}/.test(t) && !/^\d{5,}$/.test(t) && !CURRENCY.test(t))
-      .map(t => t.replace(/[^\p{L}\p{N}%.,/-]/gu, ''))
-      .filter(Boolean);
-    const text = tokens.join(' ');
-    const letters = (text.match(/\p{L}/gu) ?? []).length;
-    const chars = text.replace(/\s/g, '').length;
-    if (letters < 3 || letters / chars < 0.6) continue;
-    if (tokens.every(t => NOISE.has(plain(t)) || plain(t).length < 2)) continue;
-    if (first) {
-      const fh = first.bbox.y1 - first.bbox.y0;
-      const near = line.bbox.y0 - first.bbox.y1 < fh * 1.2;
-      const similar = line.bbox.y1 - line.bbox.y0 >= fh * 0.6;
-      if (near && similar) kept.push(text);
-      break;
+// Texto da linha sem preços, códigos e palavras de etiqueta; vazio se não parece um nome.
+function lineText(line) {
+  const tokens = (line.words ?? [])
+    .filter(w => w.confidence >= 50)
+    .map(w => w.text.trim())
+    .filter(t => t && !/\d[,.]\d{2}/.test(t) && !/^\d{5,}$/.test(t) && !CURRENCY.test(t))
+    .map(t => t.replace(/[^\p{L}\p{N}%.,/-]/gu, ''))
+    .filter(Boolean);
+  const text = tokens.join(' ');
+  const letters = (text.match(/\p{L}/gu) ?? []).length;
+  const chars = text.replace(/\s/g, '').length;
+  if (letters < 3 || letters / chars < 0.6) return '';
+  if (tokens.every(t => NOISE.has(plain(t)) || plain(t).length < 2)) return '';
+  return text;
+}
+
+// Escolhe a linha com mais letras lidas com segurança. A embalagem atrás da etiqueta sai
+// borrada (pouca segurança); o nome impresso na etiqueta sai nítido. Linhas logo acima do
+// preço valem o dobro. Nome longo que quebra em duas linhas (mesmo tamanho, bem juntas) é juntado.
+export function findNameText(lines, anchor = null) {
+  const ah = anchor ? anchor.y1 - anchor.y0 : 0;
+  const scored = lines.map(line => {
+    const text = lineText(line);
+    if (!text) return null;
+    const sure = (line.words ?? []).filter(w => w.confidence >= 70).map(w => w.text).join('');
+    let score = (sure.match(/\p{L}/gu) ?? []).length;
+    if (anchor) {
+      const gap = anchor.y0 - line.bbox.y1;
+      if (gap > -ah * 0.5 && gap < ah * 4) score *= 2;
+      else if (line.bbox.y0 > anchor.y1) score *= 0.5;
     }
-    first = line;
-    kept.push(text);
-  }
-  return titleCase(kept.join(' ')).slice(0, 60).trim();
+    return { line, text, score };
+  }).filter(Boolean);
+  if (!scored.length) return '';
+  const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
+  const bh = best.line.bbox.y1 - best.line.bbox.y0;
+  const continues = (upper, lower) => {
+    const gap = lower.bbox.y0 - upper.bbox.y1;
+    const other = upper === best.line ? lower : upper;
+    const oh = other.bbox.y1 - other.bbox.y0;
+    return gap >= -bh * 0.2 && gap < bh * 1.2 && oh >= bh * 0.6 && oh <= bh * 1.6;
+  };
+  const before = scored.find(s => s !== best && continues(s.line, best.line));
+  if (before) return `${before.text} ${best.text}`;
+  const after = scored.find(s => s !== best && continues(best.line, s.line));
+  return after ? `${best.text} ${after.text}` : best.text;
 }

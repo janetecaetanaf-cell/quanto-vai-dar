@@ -1,7 +1,7 @@
 // Guarda o app no celular para abrir mesmo sem internet no mercado.
 // Ao publicar uma versão nova, troque o mesmo número em três lugares: APP_CACHE aqui,
 // os "?v=" do index.html e o "?v=" do import do ocr.js no app.js.
-const APP_CACHE = 'qvd-app-v4';
+const APP_CACHE = 'qvd-app-v5';
 const CDN_CACHE = 'qvd-cdn-v1';
 const APP_FILES = [
   './',

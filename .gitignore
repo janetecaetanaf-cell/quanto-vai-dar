@@ -1,2 +1,5 @@
 # Configurações locais do Claude Code (não vão para o site)
 .claude/
+
+# Fotos reais de etiquetas usadas para testar a leitura (não vão para o site)
+testes/
