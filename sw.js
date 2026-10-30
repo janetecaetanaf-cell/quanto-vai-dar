@@ -1,5 +1,7 @@
 // Guarda o app no celular para abrir mesmo sem internet no mercado.
-const APP_CACHE = 'qvd-app-v3';
+// Ao publicar uma versão nova, troque o mesmo número em três lugares: APP_CACHE aqui,
+// os "?v=" do index.html e o "?v=" do import do ocr.js no app.js.
+const APP_CACHE = 'qvd-app-v4';
 const CDN_CACHE = 'qvd-cdn-v1';
 const APP_FILES = [
   './',
@@ -17,7 +19,9 @@ const APP_FILES = [
 const CDN_HOSTS = new Set(['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com']);
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(APP_FILES)).then(() => self.skipWaiting()));
+  // cache: 'reload' busca no servidor, sem reaproveitar cópia velha do navegador.
+  const fresh = APP_FILES.map(f => new Request(f, { cache: 'reload' }));
+  event.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(fresh)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
@@ -33,10 +37,11 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // Arquivos do app: tenta a internet (versão mais nova) e cai para a cópia guardada.
+  // Arquivos do app: pergunta ao servidor se mudou (no-cache) e cai para a cópia guardada
+  // sem internet. Sem isso, o navegador podia juntar página nova com código velho.
   if (url.origin === self.location.origin) {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then(res => {
           if (res.ok) {
             const copy = res.clone();
