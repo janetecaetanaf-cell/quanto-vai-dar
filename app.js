@@ -1,4 +1,4 @@
-import { readTag } from './ocr.js?v=6';
+import { readTag } from './ocr.js?v=7';
 
 // ---------- formatos (pt-BR, R$) ----------
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
