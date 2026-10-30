@@ -239,7 +239,9 @@ const CURRENCY = /^R[$S5]$/i;
 const fixDigits = t => t.replace(/[Oo]/g, '0').replace(/[lI|]/g, '1');
 const heightOf = w => w.bbox.y1 - w.bbox.y0;
 
-const PER_UNIT = /k\s*g|litro|\/\s*l\b|m[eé]dia|\bp\s*\/\s*(kg|l|lt)\b/i;
+// Rótulo de preço por kg/litro: "P/KG", "POR LITRO", "DO KG", "MÉDIA", "R$/KG", "kg:".
+// Não basta ter "kg": o nome "ARROZ 5KG" não faz o preço ao lado virar preço por kg.
+const PER_UNIT = /\bp\s*\/\s*(kg|l|lt|100\s*g)\b|\bpor\s+(kg|quilo|litro|lt|l|100\s*g)\b|\bdo\s+(kg|quilo|litro)\b|m[eé]dia|\/\s*(kg|l|lt)\b|\bkg\s*:/i;
 const TAX = /tribut|impost|ibpt/i;
 
 // Texto das palavras de tamanho parecido ao lado ou logo acima de um número.
@@ -251,9 +253,10 @@ function contextOf(w, words) {
     if (o === w) return false;
     const oh = heightOf(o);
     if (oh < h * 0.5 || oh > h * 2) return false;
-    // Na mesma linha: o rótulo costuma vir antes ("Preço por kg: R$ 37,80").
+    // Na mesma linha: o rótulo costuma vir antes, às vezes longe
+    // ("PREÇO POR LITRO ATACADO R$ 10,99").
     const sameRow = Math.abs((o.bbox.y0 + o.bbox.y1) / 2 - cy) < h * 0.5
-      && (o.bbox.x0 - w.bbox.x1 < h * 1.5 && w.bbox.x0 - o.bbox.x1 < h * 4);
+      && (o.bbox.x0 - w.bbox.x1 < h * 1.5 && w.bbox.x0 - o.bbox.x1 < h * 25);
     const gapAbove = w.bbox.y0 - o.bbox.y1;
     const above = gapAbove > -h * 0.3 && gapAbove < h * 1.5
       && o.bbox.x0 < w.bbox.x1 + h && o.bbox.x1 > w.bbox.x0 - h;
@@ -296,9 +299,10 @@ export function findPrices(words) {
     if (cents > 0 && cents < 100000) {
       const context = contextOf(w, words);
       if (TAX.test(context)) continue;
-      const perUnit = /k\s*g|\/\s*k/i.test(raw) || PER_UNIT.test(context);
+      const perUnit = /\/\s*(kg|lt|l)\b/i.test(raw) || PER_UNIT.test(context);
+      const base = /100\s*(g|ml)/i.test(context) ? 100 : 1000;   // preço por 100 g ou por kg/litro
       const score = h * (perUnit ? 0.4 : 1) * (withCurrency ? 1.25 : 1) * (w.confidence >= 60 ? 1 : 0.7);
-      found.push({ cents, score, perUnit, bbox: w.bbox });
+      found.push({ cents, score, perUnit, base, bbox: w.bbox });
     }
   }
   return found.sort((a, b) => b.score - a.score);
@@ -325,17 +329,29 @@ function amountFromName(text) {
 }
 
 // As etiquetas mostram o preço por kg ou por litro. Com o peso do nome dá para conferir a conta:
-// 100 g a R$ 79,50 o kg = R$ 7,95. Se o leitor viu "1,95", troca pelo valor que fecha a conta.
+// 100 g a R$ 79,50 o kg = R$ 7,95.
 function checkWithUnitPrice(cands, nameText) {
   const unit = cands.filter(c => !c.perUnit).map(c => c.cents);
-  const perUnit = cands.filter(c => c.perUnit).map(c => c.cents);
+  const perUnitCands = cands.filter(c => c.perUnit);
+  const perUnit = perUnitCands.map(c => c.cents);
   const amount = amountFromName(nameText);
-  if (amount && perUnit.length) {
-    const expected = Math.round((perUnit[0] * amount) / 1000);
-    const close = unit.findIndex(c => Math.abs(c - expected) <= 2);
-    if (close > 0) unit.unshift(...unit.splice(close, 1));
-    else if (close < 0 && unit.length && lookAlike(unit[0], expected)) unit[0] = expected;
-    else if (close < 0 && expected > 0) unit.splice(unit.length ? 1 : 0, 0, expected);
+  if (amount && perUnitCands.length) {
+    const { cents: per, base } = perUnitCands[0];
+    const expected = Math.round((per * amount) / base);
+    const exp = String(expected);
+    const top = unit.length ? String(unit[0]) : '';
+    // O primeiro preço lido está quase certo: números trocados ("1,95" no lugar de "7,95")
+    // ou um número a mais na frente ("17,95"). Fica o valor que fecha a conta.
+    const misread = top && top !== exp && (lookAlike(top, exp) || (top.length > exp.length && top.endsWith(exp)));
+    const matchAt = unit.findIndex(c => Math.abs(c - expected) <= 2);
+    if (misread) {
+      if (matchAt > 0) unit.splice(matchAt, 1);
+      unit[0] = expected;
+    } else if (matchAt < 0 && expected > 0) {
+      // Não bate com nada lido: vira uma opção para tocar. Em atacarejo o preço por litro
+      // costuma ser o do atacado, e o preço normal (varejo) continua em primeiro.
+      unit.splice(unit.length ? 1 : 0, 0, expected);
+    }
   }
   return [...new Set([...unit, ...perUnit])].slice(0, 4);
 }
@@ -346,7 +362,12 @@ const NOISE = new Set([
   'promocao', 'promo', 'leve', 'pague', 'por', 'cada', 'a', 'vista', 'validade', 'ean', 'ref', 'sku', 'de', 'apenas',
   'so', 'hoje', 'economize', 'clube', 'cartao', 'total', 'gr', 'item', 'itens', 'data', 'emissao', 'reais',
   'litro', 'litros', 'l', 'ml', 'quilo', 'gramas', 'embalagem', 'media', 'p/kg', 'p/l', 'tributacao', 'loja', 'dta',
+  'partir', 'atacado', 'varejo', 'li', 'acima', 'unidades',
 ]);
+// Frases de etiqueta (muitas de atacarejo) e de embalagem que nunca são o nome do produto:
+// "A PARTIR DE 3 UN", "PREÇO POR LITRO ATACADO", "VAREJO", "PRONTO PARA O CONSUMO".
+const LABEL_PHRASE = /\ba partir\b|\bpreco (por|unit|do|de|da)\b|\batacado\b|\bvarejo\b|\bleve \d|\bpague \d|\bno cartao\b|\bpronto para\b|\bacima de\b/;
+const plainText = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const SMALL_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'com', 'sem', 'em', 'c/', 'p/']);
 const plain = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9/]+/g, '');
 
@@ -371,6 +392,7 @@ function lineText(line) {
   const chars = text.replace(/\s/g, '').length;
   if (letters < 3 || letters / chars < 0.6) return '';
   if (tokens.every(t => NOISE.has(plain(t)) || plain(t).length < 2)) return '';
+  if (LABEL_PHRASE.test(plainText(text))) return '';
   return text;
 }
 
