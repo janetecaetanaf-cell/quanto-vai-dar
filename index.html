@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quanto Vai Dar?</title>
+<meta name="description" content="Some os preços do supermercado antes de chegar ao caixa.">
+<meta name="theme-color" content="#ECEFE9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1110" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Quanto Vai Dar">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-row">
+    <span class="brand">Quanto Vai Dar?</span>
+    <div class="top-right">
+      <button id="install" class="install-btn" type="button" hidden>Instalar app</button>
+      <span id="miniTotal" class="mini-total" aria-hidden="true" hidden></span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="viewCart" aria-label="Carrinho">
+    <div id="tag" class="tag" data-status="none">
+      <div class="tag-label">Total no carrinho</div>
+      <div id="total" class="price" role="status"></div>
+      <div id="count" class="tag-count"></div>
+      <div class="limit">
+        <div id="limitBar" class="limit-bar" hidden><i></i></div>
+        <button id="limitBtn" class="limit-btn" type="button"></button>
+      </div>
+    </div>
+
+    <p id="overAlert" class="over-alert" role="alert" hidden></p>
+
+    <div id="emptyCart" class="empty">
+      <h2>Carrinho vazio</h2>
+      <ol class="steps">
+        <li><span><strong>Fotografe a etiqueta</strong> de preço na prateleira.</span></li>
+        <li><span><strong>Confira</strong> o nome, o preço e a quantidade.</span></li>
+        <li><span><strong>Veja o total</strong> aqui em cima antes de chegar ao caixa.</span></li>
+      </ol>
+    </div>
+
+    <div id="cartList" hidden>
+      <div class="list-head">
+        <h2>No carrinho</h2>
+        <span class="list-hint">Toque no nome para editar</span>
+      </div>
+      <ul id="items" class="items"></ul>
+      <button id="finishBtn" type="button" class="btn ghost wide">Finalizar compra</button>
+    </div>
+  </section>
+
+  <section id="viewHistory" aria-label="Histórico" hidden>
+    <h1 class="view-title">Histórico</h1>
+    <label class="search">
+      <span class="visually-hidden">Buscar o preço de um produto</span>
+      <input id="search" type="search" placeholder="Quanto paguei no… (ex.: leite)" autocomplete="off">
+    </label>
+    <ul id="hits" class="hits"></ul>
+    <ol id="trips" class="trips"></ol>
+    <div id="histEmpty" class="empty" hidden>
+      <h2>Nenhuma compra salva</h2>
+      <p>Quando terminar as compras, toque em <strong>Finalizar compra</strong>. Elas aparecem aqui, e o app passa a avisar quando um produto estiver mais caro que da última vez.</p>
+    </div>
+
+    <section class="backup" aria-labelledby="backupTitle">
+      <h2 id="backupTitle">Backup</h2>
+      <p>As compras ficam guardadas só neste celular. Salve um backup de vez em quando e guarde o arquivo no WhatsApp, no e-mail ou no Google Drive.</p>
+      <p id="backupInfo" class="backup-info"></p>
+      <div class="backup-actions">
+        <button id="exportBtn" type="button" class="btn ghost">Salvar backup</button>
+        <button id="importBtn" type="button" class="btn ghost">Restaurar backup</button>
+      </div>
+      <input id="importInput" type="file" hidden>
+    </section>
+  </section>
+
+</main>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<nav id="dock" class="dock" aria-label="Ações">
+  <div id="cartActions" class="wrap actions">
+    <button id="camBtn" class="btn cam" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      Fotografar etiqueta
+    </button>
+    <button id="typeBtn" class="btn ghost" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+      Digitar
+    </button>
+  </div>
+  <div class="wrap tabs">
+    <button type="button" data-tab="cart" aria-current="page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 11h10.2L20 8H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg>
+      <span>Carrinho</span>
+    </button>
+    <button type="button" data-tab="history">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>
+      <span>Histórico</span>
+    </button>
+  </div>
+</nav>
+
+<input id="camInput" type="file" accept="image/*" capture="environment" hidden>
+<datalist id="knownNames"></datalist>
+<datalist id="knownStores"></datalist>
+
+<!-- Produto: adicionar ou editar -->
+<dialog id="itemSheet" class="sheet" aria-labelledby="itemTitle">
+  <form id="itemForm" class="sheet-body" novalidate>
+    <header class="sheet-head">
+      <h2 id="itemTitle">Novo produto</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Fechar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+
+    <div id="scan" class="scan" data-state="busy" hidden>
+      <img id="scanImg" alt="Foto da etiqueta">
+      <div class="scan-info">
+        <span id="scanMsg">Lendo a etiqueta…</span>
+        <div class="progress"><i id="scanBar"></i></div>
+      </div>
+    </div>
+
+    <div id="priceChips" class="chips" hidden></div>
+
+    <label class="field">
+      <span>Produto</span>
+      <input id="fName" list="knownNames" autocomplete="off" autocapitalize="sentences" placeholder="Ex.: Leite integral 1 L">
+    </label>
+
+    <div class="row2">
+      <label class="field">
+        <span id="priceLabel">Preço</span>
+        <div class="money"><span>R$</span><input id="fPrice" inputmode="decimal" autocomplete="off" placeholder="0,00"></div>
+      </label>
+      <div class="field">
+        <span>Vendido por</span>
+        <div class="seg" role="group" aria-label="Vendido por">
+          <button type="button" data-unit="un" aria-pressed="true">Unidade</button>
+          <button type="button" data-unit="kg" aria-pressed="false">Quilo</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="qtyUn" class="field">
+      <span>Quantidade</span>
+      <div class="stepper big">
+        <button type="button" data-step="-1" aria-label="Diminuir">−</button>
+        <input id="fQty" inputmode="numeric" value="1" aria-label="Quantidade">
+        <button type="button" data-step="1" aria-label="Aumentar">+</button>
+      </div>
+    </div>
+    <label id="qtyKg" class="field" hidden>
+      <span>Peso na balança (kg)</span>
+      <input id="fKg" inputmode="decimal" autocomplete="off" placeholder="0,500">
+    </label>
+
+    <p id="compareNote" class="note" hidden></p>
+    <p id="subtotalNote" class="subtotal-note"></p>
+    <p id="itemError" class="form-error" role="alert" hidden></p>
+
+    <div class="sheet-actions">
+      <button type="submit" id="itemSubmit" class="btn primary">Adicionar ao carrinho</button>
+      <button type="button" id="itemDelete" class="btn text danger" hidden>Tirar do carrinho</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Limite de gastos -->
+<dialog id="limitSheet" class="sheet" aria-labelledby="limitTitle">
+  <form id="limitForm" class="sheet-body" novalidate>
+    <header class="sheet-head">
+      <h2 id="limitTitle">Limite de gastos</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Fechar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <p class="hint">O app avisa quando o carrinho chegar a 80% do limite e quando passar dele.</p>
+    <label class="field">
+      <span>Quanto você quer gastar no máximo?</span>
+      <div class="money"><span>R$</span><input id="fLimit" inputmode="decimal" autocomplete="off" placeholder="0,00"></div>
+    </label>
+    <div id="limitChips" class="chips">
+      <button type="button" data-limit="10000">R$ 100</button>
+      <button type="button" data-limit="15000">R$ 150</button>
+      <button type="button" data-limit="20000">R$ 200</button>
+      <button type="button" data-limit="30000">R$ 300</button>
+      <button type="button" data-limit="50000">R$ 500</button>
+    </div>
+    <p id="limitError" class="form-error" role="alert" hidden></p>
+    <div class="sheet-actions">
+      <button type="submit" class="btn primary">Salvar limite</button>
+      <button type="button" id="noLimit" class="btn text">Comprar sem limite</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Finalizar compra -->
+<dialog id="finishSheet" class="sheet" aria-labelledby="finishTitle">
+  <form id="finishForm" class="sheet-body" novalidate>
+    <header class="sheet-head">
+      <h2 id="finishTitle">Finalizar compra</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Fechar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="summary">
+      <span id="finCount"></span>
+      <strong id="finTotal"></strong>
+    </div>
+    <label class="field">
+      <span>Mercado (opcional)</span>
+      <input id="fStore" list="knownStores" autocomplete="off" autocapitalize="words" placeholder="Ex.: Mercado da esquina">
+    </label>
+    <p class="hint">A compra vai para o Histórico. Na próxima vez, o app avisa se algum produto estiver mais caro.</p>
+    <div class="sheet-actions">
+      <button type="submit" class="btn primary">Salvar no histórico</button>
+      <button type="button" id="discardBtn" class="btn text danger">Descartar sem salvar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Compra do histórico -->
+<dialog id="tripSheet" class="sheet" aria-labelledby="tripTitle">
+  <div class="sheet-body">
+    <header class="sheet-head">
+      <h2 id="tripTitle">Compra</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Fechar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div id="receipt" class="receipt"></div>
+    <div class="sheet-actions">
+      <button type="button" id="deleteTrip" class="btn text danger">Apagar do histórico</button>
+    </div>
+  </div>
+</dialog>
+
+<noscript><p class="wrap">Ative o JavaScript para usar o Quanto Vai Dar?</p></noscript>
+</body>
+</html>
