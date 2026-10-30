@@ -796,6 +796,29 @@ let tagVisible = true;
 function updateMini() { $('#miniTotal').hidden = tagVisible || tab !== 'cart'; }
 new IntersectionObserver(([entry]) => { tagVisible = entry.isIntersecting; updateMini(); }, { rootMargin: '-64px 0px 0px 0px' }).observe($('#tag'));
 
+// ---------- modo claro / escuro ----------
+// Segue o celular até a pessoa tocar no botão; depois lembra a escolha.
+const THEME_KEY = 'quanto-vai-dar:tema';
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+const currentTheme = () => document.documentElement.dataset.theme ?? (darkQuery.matches ? 'dark' : 'light');
+
+function paintTheme() {
+  const dark = currentTheme() === 'dark';
+  const btn = $('#themeBtn');
+  btn.dataset.mode = dark ? 'dark' : 'light';
+  btn.setAttribute('aria-label', dark ? 'Ativar modo claro' : 'Ativar modo escuro');
+  $('#themeColor').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+}
+
+$('#themeBtn').addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem(THEME_KEY, next); } catch {}
+  paintTheme();
+});
+darkQuery.addEventListener('change', paintTheme);
+paintTheme();
+
 // ---------- instalar como app ----------
 let installEvent = null;
 addEventListener('beforeinstallprompt', e => {

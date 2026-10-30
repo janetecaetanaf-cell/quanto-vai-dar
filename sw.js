@@ -1,5 +1,5 @@
 // Guarda o app no celular para abrir mesmo sem internet no mercado.
-const APP_CACHE = 'qvd-app-v2';
+const APP_CACHE = 'qvd-app-v3';
 const CDN_CACHE = 'qvd-cdn-v1';
 const APP_FILES = [
   './',

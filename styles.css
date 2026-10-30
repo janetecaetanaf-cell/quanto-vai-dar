@@ -11,6 +11,7 @@
   --tag-ink: #15191A;
   --tag-warn: #A54200;
   --tag-over: #C21F16;
+  --tag-track: rgb(21 25 26 / .16);
   --red: #C21F16;
   --on-red: #FFFFFF;
   --green: #17763E;
@@ -25,20 +26,45 @@
   color-scheme: light;
 }
 
+/* Modo escuro: segue o celular até a pessoa escolher no botão lua/sol.
+   A etiqueta fica vermelho terra, o tom que a Pri aprovou. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0E1110;
-    --surface: #191D1B;
-    --sunken: #121614;
-    --ink: #EBEEE8;
-    --muted: #9AA39B;
-    --line: #2B312D;
+  :root:not([data-theme="light"]) {
+    --bg: #13100F;
+    --surface: #1E1918;
+    --sunken: #171312;
+    --ink: #F1ECE9;
+    --muted: #A89D98;
+    --line: #352D2A;
+    --tag: #B4532F;
+    --tag-ink: #FFF3EA;
+    --tag-warn: #FFD27A;
+    --tag-over: #FFE24D;
+    --tag-track: rgb(255 243 234 / .28);
     --red: #FF6B5E;
     --on-red: #1A0705;
     --green: #55CC88;
     --shadow: 0 1px 2px rgb(0 0 0 / .5);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #13100F;
+  --surface: #1E1918;
+  --sunken: #171312;
+  --ink: #F1ECE9;
+  --muted: #A89D98;
+  --line: #352D2A;
+  --tag: #B4532F;
+  --tag-ink: #FFF3EA;
+  --tag-warn: #FFD27A;
+  --tag-over: #FFE24D;
+  --tag-track: rgb(255 243 234 / .28);
+  --red: #FF6B5E;
+  --on-red: #1A0705;
+  --green: #55CC88;
+  --shadow: 0 1px 2px rgb(0 0 0 / .5);
+  color-scheme: dark;
 }
 
 /* ---------- base ---------- */
@@ -94,6 +120,17 @@ main.wrap { padding-bottom: calc(var(--dock-h) + 28px); }
   font-variant-numeric: tabular-nums;
 }
 .install-btn { border: 1.5px solid var(--line); background: var(--surface); border-radius: 99px; padding: 6px 12px; font-size: 14px; font-weight: 700; }
+.theme-btn {
+  width: 40px; height: 40px; padding: 0; flex: none;
+  display: grid; place-items: center;
+  border: 1.5px solid var(--line); border-radius: 50%;
+  background: var(--surface); color: var(--ink);
+}
+.theme-btn svg { grid-area: 1 / 1; width: 20px; height: 20px; transition: transform .35s ease, opacity .2s ease; }
+.theme-btn .sun { opacity: 0; transform: rotate(-90deg) scale(.5); }
+.theme-btn[data-mode="dark"] .moon { opacity: 0; transform: rotate(90deg) scale(.5); }
+.theme-btn[data-mode="dark"] .sun { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .theme-btn svg { transition: none; } }
 
 /* ---------- etiqueta com o total ---------- */
 .tag {
@@ -126,7 +163,7 @@ main.wrap { padding-bottom: calc(var(--dock-h) + 28px); }
 .tag[data-status="over"] .price { color: var(--tag-over); }
 .tag-count { font-size: 15px; }
 .limit { margin-top: 10px; display: grid; gap: 6px; }
-.limit-bar { height: 8px; border-radius: 99px; background: rgb(21 25 26 / .16); overflow: hidden; }
+.limit-bar { height: 8px; border-radius: 99px; background: var(--tag-track); overflow: hidden; }
 .limit-bar i { display: block; height: 100%; width: 0; background: var(--tag-ink); border-radius: inherit; transition: width .3s ease; }
 .tag[data-status="warn"] .limit-bar i { background: var(--tag-warn); }
 .tag[data-status="over"] .limit-bar i { background: var(--tag-over); }
