@@ -133,14 +133,20 @@ async function readBigPrice(worker, canvas, words) {
     const full = text.match(/(\d{1,4})\s*[,.]\s*(\d{2})(?!\d)/);
     if (full) return valid(Number(full[1]) * 100 + Number(full[2]));
 
-    // Só os reais saíram: procura os centavos elevados ao lado. As caixas da primeira
-    // leitura são mais precisas que as desta (que esticam até a borda do recorte).
-    const reais = text.match(/^\d{1,4}$/)?.[0];
+    // Só os reais saíram (às vezes separados, como "1 8", ou com lixo depois, como "18.2"):
+    // procura os centavos elevados ao lado. As caixas da primeira leitura são mais precisas
+    // que as desta (que esticam até a borda do recorte).
+    const lead = text.match(/^\d[\d ]*/)?.[0].replace(/ /g, '');
     const sameLine = withDigits.filter(w => heightOf(w) >= h * 0.6 && w.bbox.y0 < big.bbox.y1 && w.bbox.y1 > big.bbox.y0);
-    if (reais) {
+    if (lead && lead.length <= 6) {
       await worker.setParameters({ tessedit_char_whitelist: '0123456789,.' });
       const cents = await readRaisedCents(worker, canvas, sameLine);
-      if (cents !== null) return valid(Number(reais) * 100 + cents);
+      if (cents !== null) {
+        // "499" + centavos "99": os centavos já vieram grudados nos reais.
+        const cc = String(cents).padStart(2, '0');
+        const reais = lead.length >= 3 && lead.endsWith(cc) ? lead.slice(0, -2) : lead;
+        if (reais.length <= 4) return valid(Number(reais) * 100 + cents);
+      }
     }
 
     // Tudo grudado, como "499": os dois últimos dígitos são os centavos.
